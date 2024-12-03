@@ -18,6 +18,8 @@ import os
 
 from selenium.webdriver.support.wait import WebDriverWait
 
+from config import DOWNLOAD_DIR, LOGIN_URL
+
 # Включаем логирование
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
