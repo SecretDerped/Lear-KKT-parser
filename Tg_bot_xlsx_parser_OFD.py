@@ -161,9 +161,9 @@ def process_data(update: Update, context: CallbackContext):
         downloaded_file_paths = selenium_download_all(urls)
 
         if not downloaded_file_paths:
-            logger.warning("Нет файлов для обработки. Проверьте работу сайта OFD.ru")
+            logger.warning("Нет файлов для обработки. Проверьте скачанные файлы.")
             update.message.reply_text("Никаких данных для обработки не получено.")
-            return cancel(update, context)
+            return
 
         # Обрабатываем каждый скачанный файл
         processed_dfs = []
@@ -181,7 +181,7 @@ def process_data(update: Update, context: CallbackContext):
         if not processed_dfs:
             logger.warning("После фильтрации данных из всех файлов нет результатов.")
             update.message.reply_text("После фильтрации данных нет результатов.")
-            return cancel(update, context)
+            return
 
             # Объединяем все обработанные DataFrame в один
         combined_df = pd.concat(processed_dfs, ignore_index=True)

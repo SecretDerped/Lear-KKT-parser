@@ -1,12 +1,10 @@
 import datetime
 import inspect
 import logging
-import pickle
 import sys
 import traceback
 from functools import wraps
 
-import requests
 from selenium.common import InvalidSessionIdException, TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver import Chrome, ChromeOptions
@@ -76,32 +74,22 @@ def log_webdriver_action(func):
     return _wrapper
 
 
-def load_auth_cookiess():
-    try:
-        session = requests.Session()
-        with open("cookies.pkl", "rb") as file:
-            cookies = pickle.load(file)
-            for cookie in cookies:
-                session.cookies.set(cookie['name'], cookie['value'])
-        return session
-    except (EOFError, FileNotFoundError):
-        return
-
-
 class WebdriverProfile:
     def __init__(self):
         self.download_directory = DOWNLOAD_DIR
         self.options = ChromeOptions()
         self.options.add_argument('--allow-profiles-outside-user-dir')
         self.options.add_argument('--enable-profile-shortcut-manager')
-        self.options.add_argument(rf"user-data-dir={os.path.join(os.getcwd(), 'browser_profile')}")  # Убедитесь, что путь правильный
-        # self.options.add_argument("--headless")  # Выполнение в фоновом режиме без открытия браузера
+        self.options.add_argument('--profile-directory=Profile 1')
+        self.options.add_argument(rf"user-data-dir=/home/user/PycharmProjects/Lear-KKT-parser/browser_profile")
+        # self.options.add_argument("--headless")  # Выполнение в фоновом режиме без открытия браузера (ещё не работает)
+        # TODO: Добиться работы в режиме headless
         self.options.add_argument("--window-size=1600,900")
         self.options.add_argument("--no-sandbox")
         self.options.add_experimental_option("prefs", {
+            "download.directory_upgrade": True,
             "download.default_directory": self.download_directory,
             "download.prompt_for_download": False,  # Всплывающее окно загрузки
-            "download.directory_upgrade": True,
             "safebrowsing.enabled": True
         })
         self.driver = Chrome(options=self.options)
@@ -147,23 +135,10 @@ class WebdriverProfile:
 
         return True
 
-    def get_auth_cookies(self):
-        driver = self.driver
-        # Сохранение cookies
-        cookies = driver.get_cookies()
-        with open("cookies.pkl", "wb") as file:
-            pickle.dump(cookies, file)
-        self.close()
 
     @log_print
     def ofd_direct_download(self, url):
-        try:  # Если при загрузке найден элемент со страницы авторизации, выполняет скрипт авторизации
-            # Загрузка cookies в сессию requests
-            try:
-                session = load_auth_cookiess()
-            except (EOFError, FileNotFoundError) as e:
-                logging.info(e)
-                self.get_auth_cookies()
+        try:  # TODO: Если при загрузке найден элемент со страницы авторизации, выполняет скрипт авторизации
             self.driver.get(url)
             return 'True'
 
@@ -171,11 +146,11 @@ class WebdriverProfile:
             logging.critical(f'{traceback.format_exc()}')
             sys.exit(1)
 
-        except Exception:
-            logging.warning(f'{traceback.format_exc()}')
+        except Exception as e:
+            logging.warning(f'{e}: {traceback.format_exc()}')
             if '--headless' in self.options.arguments:
+                time.sleep(36000)
                 return False
-            time.sleep(36000)
             return None
 
 
