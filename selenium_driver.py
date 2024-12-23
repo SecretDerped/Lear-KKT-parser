@@ -1,4 +1,3 @@
-import datetime
 import inspect
 import logging
 import sys
@@ -16,13 +15,8 @@ import os
 
 from selenium.webdriver.support.wait import WebDriverWait
 
-from config import DOWNLOAD_DIR, LOGIN_URL
+from config import DOWNLOAD_DIR, LOGIN_URL, USERNAME, PASSWORD
 
-# Включаем логирование
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
 logger = logging.getLogger(__name__)
 
 
@@ -78,17 +72,10 @@ class WebdriverProfile:
     def __init__(self):
         self.download_directory = DOWNLOAD_DIR
         self.options = ChromeOptions()
-        self.options.add_argument('--allow-profiles-outside-user-dir')
-        self.options.add_argument('--enable-profile-shortcut-manager')
         self.options.add_argument('--profile-directory=Profile 1')
         self.options.add_argument(rf"user-data-dir=/home/user/PycharmProjects/Lear-KKT-parser/browser_profile")
-        # self.options.add_argument("--headless")  # Выполнение в фоновом режиме без открытия браузера (ещё не работает)
-        # TODO: Добиться работы в режиме headless
-        self.options.add_argument("--window-size=1600,900")
-        self.options.add_argument("--no-sandbox")
+        self.options.add_argument("--headless")  # Выполнение в фоновом режиме без открытия браузера
         self.options.add_experimental_option("prefs", {
-            "download.directory_upgrade": True,
-            "download.default_directory": self.download_directory,
             "download.prompt_for_download": False,  # Всплывающее окно загрузки
             "safebrowsing.enabled": True
         })
@@ -128,18 +115,31 @@ class WebdriverProfile:
         driver.get(LOGIN_URL)
         time.sleep(2)
 
-        submit_button_xpath = "/html/body/pk-app-shell/app-main-page/section/div[1]/div/app-main-login/div/form/div[3]/button/span[1]"
+        login_input_xpath = '/html/body/pk-app-shell/app-main-page/section/div[1]/div/app-main-login/div/form/ui-text-control[1]/div/input'
+        login_field = find(login_input_xpath)
+        login_field.send_keys(USERNAME)
+
+        password_input_xpath = '/html/body/pk-app-shell/app-main-page/section/div[1]/div/app-main-login/div/form/ui-text-control[2]/div/input'
+        password_field = find(password_input_xpath)
+        password_field.send_keys(PASSWORD)
+
+        submit_button_xpath = "/html/body/pk-app-shell/app-main-page/section/div[1]/div/app-main-login/div/form/div[3]/button"
         submit_button = find(submit_button_xpath)
         click(submit_button)
+
         time.sleep(10)
 
         return True
 
-
     @log_print
     def ofd_direct_download(self, url):
-        try:  # TODO: Если при загрузке найден элемент со страницы авторизации, выполняет скрипт авторизации
+        try:
             self.driver.get(url)
+            time.sleep(2)
+            # Если при загрузке найден элемент ошибки, выполняет скрипт авторизации
+            if 'Errors' in self.driver.page_source:
+                self.ofd_login()
+                self.driver.get(url)
             return 'True'
 
         except InvalidSessionIdException:
@@ -165,7 +165,7 @@ def selenium_download_all(urls):
     for index, url in enumerate(urls, start=1):
         logger.info(f"Переход к URL {index}/{len(urls)}: {url}")
         before_download = set(os.listdir(DOWNLOAD_DIR))
-        file_path = os.path.join(DOWNLOAD_DIR, f'\ККТ партнёра-{datetime.datetime.now().strftime("%Y-%m-%d_%I-%M")}.xlsx')
+        # file_path = os.path.join(DOWNLOAD_DIR, f'\ККТ партнёра-{datetime.datetime.now().strftime("%Y-%m-%d_%I-%M")}.xlsx')
         browser.ofd_direct_download(url)
         # Проверка, что файл полностью загружен
         try:

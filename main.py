@@ -1,11 +1,11 @@
-from logging import basicConfig, INFO
+from logging import basicConfig, INFO, DEBUG
 from telegram.ext import Updater
 from Tg_bot_xlsx_parser_OFD import get_handler
 from config import TOKEN
 
 # Включаем логирование
 basicConfig(format='%(asctime)s: %(filename)s - %(levelname)s - %(message)s',
-            level=INFO)
+            level=DEBUG)
 
 def main():
     updater = Updater(TOKEN)
