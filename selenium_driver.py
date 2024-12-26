@@ -3,16 +3,15 @@ import logging
 import sys
 import traceback
 from functools import wraps
+import time
+import os
 
 from selenium.common import InvalidSessionIdException, TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver import Chrome, ChromeOptions
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.remote.webelement import WebElement
-
-import time
-import os
-
 from selenium.webdriver.support.wait import WebDriverWait
 
 from config import DOWNLOAD_DIR, LOGIN_URL, USERNAME, PASSWORD
@@ -70,16 +69,26 @@ def log_webdriver_action(func):
 
 class WebdriverProfile:
     def __init__(self):
-        self.download_directory = DOWNLOAD_DIR
         self.options = ChromeOptions()
+        self.options.add_argument("--user-data-dir=/root/browser_profile")
         self.options.add_argument('--profile-directory=Profile 1')
-        self.options.add_argument(rf"user-data-dir=/home/user/PycharmProjects/Lear-KKT-parser/browser_profile")
         self.options.add_argument("--headless")  # Выполнение в фоновом режиме без открытия браузера
+        self.options.add_argument("--no-sandbox")
+        self.options.add_argument("--disable-dev-shm-usage")
+        self.options.add_argument("--disable-gpu")
+        self.options.add_argument("--window-size=1280,720")
+        self.options.add_argument("--disable-extensions")
+        self.options.add_argument("--disable-infobars")
+        self.options.add_argument("--disable-browser-side-navigation")
+        self.options.add_argument("--disable-features=VizDisplayCompositor")
+        self.options.binary_location = "/usr/bin/google-chrome"
         self.options.add_experimental_option("prefs", {
-            "download.prompt_for_download": False,  # Всплывающее окно загрузки
-            "safebrowsing.enabled": True
-        })
-        self.driver = Chrome(options=self.options)
+            "download.default_directory": DOWNLOAD_DIR, # Явно указываем директорию для загрузки
+            "download.prompt_for_download": False, # Всплывающее окно загрузки
+            "safebrowsing.enabled": True,
+    })
+        self.service = Service('/usr/local/bin/chromedriver')
+        self.driver = Chrome(service=self.service, options=self.options)
         self.driver.implicitly_wait(15)
 
     @log_print
@@ -113,7 +122,6 @@ class WebdriverProfile:
         driver = self.driver
 
         driver.get(LOGIN_URL)
-        time.sleep(2)
 
         login_input_xpath = '/html/body/pk-app-shell/app-main-page/section/div[1]/div/app-main-login/div/form/ui-text-control[1]/div/input'
         login_field = find(login_input_xpath)
@@ -127,15 +135,12 @@ class WebdriverProfile:
         submit_button = find(submit_button_xpath)
         click(submit_button)
 
-        time.sleep(10)
-
         return True
 
     @log_print
     def ofd_direct_download(self, url):
         try:
             self.driver.get(url)
-            time.sleep(2)
             # Если при загрузке найден элемент ошибки, выполняет скрипт авторизации
             if 'Errors' in self.driver.page_source:
                 self.ofd_login()
@@ -165,16 +170,15 @@ def selenium_download_all(urls):
     for index, url in enumerate(urls, start=1):
         logger.info(f"Переход к URL {index}/{len(urls)}: {url}")
         before_download = set(os.listdir(DOWNLOAD_DIR))
-        # file_path = os.path.join(DOWNLOAD_DIR, f'\ККТ партнёра-{datetime.datetime.now().strftime("%Y-%m-%d_%I-%M")}.xlsx')
         browser.ofd_direct_download(url)
         # Проверка, что файл полностью загружен
         try:
-            WebDriverWait(browser.driver, 20).until(
+            WebDriverWait(browser.driver, 10).until(
                 lambda driver: any(file.endswith('.xlsx') or file.endswith('.xls') for file in os.listdir(DOWNLOAD_DIR))
             )
         except TimeoutException:
             logger.error(f"Загрузка из {url} не завершилась вовремя.")
-            continue  # Пропустить текущий URL и перейти к следующему
+            return None
 
         after_download = set(os.listdir(DOWNLOAD_DIR))
         new_files = after_download - before_download

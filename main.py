@@ -5,7 +5,7 @@ from config import TOKEN
 
 # Включаем логирование
 basicConfig(format='%(asctime)s: %(filename)s - %(levelname)s - %(message)s',
-            level=DEBUG)
+            level=INFO)
 
 def main():
     updater = Updater(TOKEN)
