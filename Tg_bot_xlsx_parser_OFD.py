@@ -1,15 +1,13 @@
 import os
-from logging import getLogger
 
 import pandas as pd
+
+from logging import getLogger
 from datetime import datetime, date
 from calendar import monthrange
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    CallbackContext, Filters,
-    ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler
-)
+from telegram.ext import CallbackContext, Filters, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler
 
 from config import DOWNLOAD_DIR, DOWNLOAD_URLS
 from selenium_driver import selenium_download_all
@@ -106,12 +104,10 @@ def welcome_choice(update: Update, context: CallbackContext) -> int:
         filter_type = FILTER_FN
         year, month = today.year, today.month
 
-    # Формируем даты
     start_date = datetime(year, month, 1)
     last_day = monthrange(year, month)[1]
     end_date = datetime(year, month, last_day)
 
-    # Сохраняем в user_data, если нужно
     context.user_data['selected_filter'] = filter_type
     context.user_data['start_date'] = start_date
     context.user_data['end_date'] = end_date
@@ -119,15 +115,7 @@ def welcome_choice(update: Update, context: CallbackContext) -> int:
     query.edit_message_text(text="Идёт обработка данных. Пожалуйста, подождите...")
 
     # Запуск обработки
-    # Передаём update, context, msg=query.message
-    return process_data(
-        update=update,
-        context=context,
-        msg=query.message,
-        selected_filter=filter_type,
-        start_date=start_date,
-        end_date=end_date
-    )
+    return process_data(update, context, query.message, filter_type, start_date, end_date)
 
 
 # ========== 2. Сценарий "Другое": выбор ФН / ОФД + ручной ввод дат ==========
@@ -156,7 +144,7 @@ def choose_filter(update: Update, context: CallbackContext) -> int:
     context.user_data['selected_filter'] = selected_filter
 
     query.edit_message_text(
-        text="С какой даты искать? Введите в формате ДД.ММ.ГГГГ\n\n Чтобы отменить, нажмите /cancel"
+        text="С какой даты искать? Введите в формате ДД.ММ.ГГГГ\n\n Чтобы отменить, нажмите /start"
     )
     return TYPING_START_DATE
 
@@ -164,18 +152,17 @@ def choose_filter(update: Update, context: CallbackContext) -> int:
 def input_start_date(update: Update, context: CallbackContext) -> int:
     """Ввод начальной даты (ручной)."""
     text = update.message.text
-
-    if text == '/cancel':
-        return cancel(update, context)
+    if text == '/start':
+        return welcome(update, context)
 
     try:
         start_date = datetime.strptime(text, "%d.%m.%Y")
         context.user_data['start_date'] = start_date
-        update.message.reply_text("По какую дату?\n\n Отменить - /cancel")
+        update.message.reply_text("По какую дату?\n\n Отменить - /start")
         return TYPING_END_DATE
     except ValueError:
         update.message.reply_text(
-            "Пожалуйста, введите дату в формате ДД.ММ.ГГГГ\n\n Чтобы отменить, нажмите /cancel"
+            "Пожалуйста, введите дату в формате ДД.ММ.ГГГГ\n\n Чтобы вернуться, нажмите /start"
         )
         return TYPING_START_DATE
 
@@ -183,8 +170,8 @@ def input_start_date(update: Update, context: CallbackContext) -> int:
 def input_end_date(update: Update, context: CallbackContext) -> int:
     """Ввод конечной даты (ручной)."""
     text = update.message.text
-    if text == '/cancel':
-        return cancel(update, context)
+    if text == '/start':
+        return welcome(update, context)
 
     try:
         end_date = datetime.strptime(text, "%d.%m.%Y")
@@ -199,33 +186,18 @@ def input_end_date(update: Update, context: CallbackContext) -> int:
         selected_filter = context.user_data['selected_filter']
 
         # Запуск обработки, передавая update.message как msg
-        return process_data(
-            update=update,
-            context=context,
-            msg=update.message,
-            selected_filter=selected_filter,
-            start_date=start_date,
-            end_date=end_date
-        )
+        return process_data(update, context, update.message, selected_filter, start_date, end_date)
 
     except ValueError:
         update.message.reply_text(
-            "Пожалуйста, введите дату в формате ДД.ММ.ГГГГ\n\n Чтобы отменить, нажмите /cancel"
+            "Пожалуйста, введите дату в формате ДД.ММ.ГГГГ\n\n Чтобы отменить, нажмите /start"
         )
         return TYPING_END_DATE
 
 
-# ========== 3. Команда cancel и возврат в главное меню ==========
-
-def cancel(update: Update, context: CallbackContext):
-    """Команда для возврата на исходную (главное меню)."""
-    # Возвращаемся к состоянию WELCOME
-    return welcome(update, context)
-
-
 # ========== 4. Подготовка DataFrame ==========
 
-def prepare_dataframe(df, selected_filter, start_date, end_date):
+def prepare_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
     """Подготовка и фильтрация данных в DataFrame."""
     df["ИНН"] = df["ИНН"].astype(str)
     df["Заводской номер ККТ"] = df["Заводской номер ККТ"].astype(str)
@@ -285,12 +257,6 @@ def process_data(
     При отсутствии файлов или по завершении, возвращаемся в меню через cancel(update, context).
     """
 
-    from logging import getLogger
-    from config import DOWNLOAD_DIR, DOWNLOAD_URLS
-    from selenium_driver import selenium_download_all
-
-    logger = getLogger(__name__)
-
     file_name = f'{start_date.strftime("%d.%m.%Y")}-{end_date.strftime("%d.%m.%Y")}_{selected_filter}.xlsx'
 
     try:
@@ -300,7 +266,7 @@ def process_data(
         if not downloaded_file_paths:
             logger.warning("Нет файлов для обработки. Проверьте скачанные файлы.")
             msg.reply_text("Никаких данных для обработки не получено.")
-            return cancel(update, context)
+            return welcome(update, context)
 
         # Обработка xlsx
         processed_dfs = []
@@ -319,7 +285,7 @@ def process_data(
         if not processed_dfs:
             logger.warning("После фильтрации данных нет результатов.")
             msg.reply_text("После фильтрации данных нет результатов.")
-            return cancel(update, context)
+            return welcome(update, context)
 
         # Объединение и сохранение итогового Excel
         combined_df = pd.concat(processed_dfs, ignore_index=True)
@@ -356,7 +322,7 @@ def process_data(
         msg.reply_text("Ошибка. Зафиксировано в логах. Сообщите администратору.")
     finally:
         # В любом случае, возвращаемся в главное меню
-        return cancel(update, context)
+        return welcome(update, context)
 
 
 # ========== 6. ConversationHandler ==========
@@ -370,5 +336,5 @@ def get_handler():
             TYPING_START_DATE: [MessageHandler(Filters.text & ~Filters.command, input_start_date)],
             TYPING_END_DATE: [MessageHandler(Filters.text & ~Filters.command, input_end_date)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[CommandHandler('start', welcome)],
     )

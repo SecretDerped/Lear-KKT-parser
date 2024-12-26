@@ -13,5 +13,8 @@ docker rmi ofd_parser_bot:new
 # Запуск навого контейнера с сохранением кеша браузера с предыдущей сборки
 docker run -itd -v /host/browser_profile:/root/browser_profile --name ofd_parser_bot_container --restart=always ofd_parser_bot:latest
 
+# Очистка мусора
+docker system prune -f 
+
 # Вывод логов в терминал
 docker logs -f ofd_parser_bot_container
