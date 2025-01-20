@@ -1,10 +1,14 @@
 import inspect
 import logging
+import shutil
 import sys
+import tempfile
 import traceback
 from functools import wraps
 import time
 import os
+
+import requests
 
 from selenium.common import InvalidSessionIdException, TimeoutException
 from selenium.webdriver.common.by import By
@@ -72,7 +76,7 @@ class WebdriverProfile:
         self.options = ChromeOptions()
         self.options.add_argument("--user-data-dir=/root/browser_profile")
         self.options.add_argument('--profile-directory=Profile 1')
-        self.options.add_argument("--headless")  # Выполнение в фоновом режиме без открытия браузера
+        self.options.add_argument("--headless")
         self.options.add_argument("--no-sandbox")
         self.options.add_argument("--disable-dev-shm-usage")
         self.options.add_argument("--disable-gpu")
@@ -83,13 +87,13 @@ class WebdriverProfile:
         self.options.add_argument("--disable-features=VizDisplayCompositor")
         self.options.binary_location = "/usr/bin/google-chrome"
         self.options.add_experimental_option("prefs", {
-            "download.default_directory": DOWNLOAD_DIR, # Явно указываем директорию для загрузки
-            "download.prompt_for_download": False, # Всплывающее окно загрузки
+            "download.default_directory": DOWNLOAD_DIR,
+            "download.prompt_for_download": False,
             "safebrowsing.enabled": True,
-    })
+        })
         self.service = Service('/usr/local/bin/chromedriver')
         self.driver = Chrome(service=self.service, options=self.options)
-        self.driver.implicitly_wait(15)
+        self.driver.implicitly_wait(20)
 
     @log_print
     def close(self):
@@ -163,33 +167,64 @@ def selenium_download_all(urls):
     browser = WebdriverProfile()
     logger.info("Chrome запущен.")
     downloaded_files = []
+
     if not urls:
         logger.warning("Список URL пуст.")
         return downloaded_files
 
+
     for index, url in enumerate(urls, start=1):
         logger.info(f"Переход к URL {index}/{len(urls)}: {url}")
-        before_download = set(os.listdir(DOWNLOAD_DIR))
         browser.ofd_direct_download(url)
-        # Проверка, что файл полностью загружен
+        before_download = set(os.listdir(DOWNLOAD_DIR))  # Сохраняем текущие файлы
+        logger.debug(f"{before_download = }")
+
+        # Ожидаем появления нового файла и проверки его статуса
         try:
-            WebDriverWait(browser.driver, 10).until(
-                lambda driver: any(file.endswith('.xlsx') or file.endswith('.xls') for file in os.listdir(DOWNLOAD_DIR))
+            WebDriverWait(browser.driver, 20).until(
+                lambda driver: any(file.endswith('.xlsx') and file not in before_download for file in os.listdir(DOWNLOAD_DIR))
             )
         except TimeoutException:
             logger.error(f"Загрузка из {url} не завершилась вовремя.")
             return None
 
+        # Проверка, что файл завершил загрузку и не является .crdownload
         after_download = set(os.listdir(DOWNLOAD_DIR))
-        new_files = after_download - before_download
+        new_files = after_download - before_download  # Определяем новые файлы
+        logger.debug(f"Новые файлы: {new_files}")
+
+        counter = 1
         for file_name in new_files:
-            if file_name.endswith('.xlsx') or file_name.endswith('.xls'):
-                file_path = os.path.join(DOWNLOAD_DIR, file_name)
-                downloaded_files.append(file_path)
-                logger.info(f"Файл скачан: {file_name}")
+            if file_name.endswith('.xlsx'):
+                src_path = os.path.join(DOWNLOAD_DIR, file_name)
+
+                # Подождём, пока файл не станет доступен (не будет .crdownload)
+                while file_name.endswith('.crdownload') or not os.path.exists(src_path):
+                    logger.debug(f"Файл {file_name} ещё не готов, ожидаем...")
+                    time.sleep(1)
+                    file_name = os.listdir(DOWNLOAD_DIR)[-1]  # Обновляем имя файла, если оно изменилось
+                    src_path = os.path.join(DOWNLOAD_DIR, file_name)
+
+                # Переименовываем файл
+                new_file_name = f"{counter}.xlsx"
+                dest_path = os.path.join(DOWNLOAD_DIR, new_file_name)
+
+                while os.path.exists(dest_path):  # Если такой файл уже существует, пробуем другой номер
+                    counter += 1
+                    new_file_name = f"{counter}.xlsx"
+                    dest_path = os.path.join(DOWNLOAD_DIR, new_file_name)
+
+                os.rename(src_path, dest_path)
+                downloaded_files.append(dest_path)
+                logger.info(f"Файл переименован и скачан: {new_file_name}")
+                counter += 1
+
+        # Обновляем список файлов для следующей итерации
+        before_download = after_download
 
     browser.close()
     return downloaded_files
+
 
 
 if __name__ == '__main__':
