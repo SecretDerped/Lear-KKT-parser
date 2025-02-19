@@ -197,7 +197,7 @@ def input_end_date(update: Update, context: CallbackContext) -> int:
 
 # ========== 4. Подготовка DataFrame ==========
 
-def prepare_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
+def prepare_ofd_ru_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
     """Подготовка и фильтрация данных в DataFrame."""
     df["ИНН"] = df["ИНН"].astype(str)
     df["Заводской номер ККТ"] = df["Заводской номер ККТ"].astype(str)
@@ -273,7 +273,7 @@ def process_data(
         for file_path in downloaded_file_paths:
             logger.info(f"Обработка файла: {file_path}")
             df = pd.read_excel(file_path)
-            df_prepared = prepare_dataframe(df, selected_filter, start_date, end_date)
+            df_prepared = prepare_ofd_ru_dataframe(df, selected_filter, start_date, end_date)
 
             if not df_prepared.empty:
                 processed_dfs.append(df_prepared)

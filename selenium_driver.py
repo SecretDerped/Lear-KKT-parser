@@ -18,7 +18,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support.wait import WebDriverWait
 
-from config import DOWNLOAD_DIR, LOGIN_URL, USERNAME, PASSWORD
+from config import DOWNLOAD_DIR, OFD_RU_LOGIN_URL, OFD_RU_USERNAME, OFD_RU_PASSWORD, ONE_OFD_PASSWORD, ONE_OFD_USERNAME
 
 logger = logging.getLogger(__name__)
 
@@ -120,20 +120,20 @@ class WebdriverProfile:
         return result
 
     @log_print
-    def ofd_login(self):
+    def ofd_ru_login(self):
         find = self.find
         click = self.click
         driver = self.driver
 
-        driver.get(LOGIN_URL)
+        driver.get(OFD_RU_LOGIN_URL)
 
         login_input_xpath = '/html/body/pk-app-shell/app-main-page/section/div[1]/div/app-main-login/div/form/ui-text-control[1]/div/input'
         login_field = find(login_input_xpath)
-        login_field.send_keys(USERNAME)
+        login_field.send_keys(OFD_RU_USERNAME)
 
         password_input_xpath = '/html/body/pk-app-shell/app-main-page/section/div[1]/div/app-main-login/div/form/ui-text-control[2]/div/input'
         password_field = find(password_input_xpath)
-        password_field.send_keys(PASSWORD)
+        password_field.send_keys(OFD_RU_PASSWORD)
 
         submit_button_xpath = "/html/body/pk-app-shell/app-main-page/section/div[1]/div/app-main-login/div/form/div[3]/button"
         submit_button = find(submit_button_xpath)
@@ -142,12 +142,12 @@ class WebdriverProfile:
         return True
 
     @log_print
-    def ofd_direct_download(self, url):
+    def ofd_ru_download(self, url):
         try:
             self.driver.get(url)
             # Если при загрузке найден элемент ошибки, выполняет скрипт авторизации
             if 'Errors' in self.driver.page_source:
-                self.ofd_login()
+                self.ofd_ru_login()
                 self.driver.get(url)
             return 'True'
 
@@ -162,6 +162,53 @@ class WebdriverProfile:
                 return False
             return None
 
+    @log_print
+    def one_ofd_login(self):
+        find = self.find
+        click = self.click
+        driver = self.driver
+
+        driver.get(OFD_RU_LOGIN_URL)
+
+        login_input_xpath = '/html/body/app-root/div/div/div/registration-login-mail/div/div/div/div/app-taxpayer-input/div/div/input'
+        login_field = find(login_input_xpath)
+        login_field.send_keys(ONE_OFD_USERNAME)
+
+        contune_button_xpath = "/html/body/app-root/div/div/div/registration-login-mail/div/div/div/div/div/app-button"
+        contune_button = find(contune_button_xpath)
+        click(contune_button)
+
+        password_input_xpath = '/html/body/app-root/div/div/div/registration-login-password/div/div/div/app-taxpayer-input/div/div/input'
+        password_field = find(password_input_xpath)
+        password_field.send_keys(ONE_OFD_PASSWORD)
+
+        contune_button_xpath = '/html/body/app-root/div/div/div/registration-login-password/div/div/div/div[2]/app-button'
+        contune_button = find(contune_button_xpath)
+        click(contune_button)
+
+        return True
+
+    @log_print
+    def one_ofd_download(self, url):
+        try:
+            self.driver.get(url)
+            # Если при загрузке найден элемент ошибки, выполняет скрипт авторизации
+            if 'invalid' in self.driver.page_source:
+                self.one_ofd_login()
+                self.driver.get(url)
+            return 'True'
+
+        except InvalidSessionIdException:
+            logging.critical(f'{traceback.format_exc()}')
+            sys.exit(1)
+
+        except Exception as e:
+            logging.warning(f'{e}: {traceback.format_exc()}')
+            if '--headless' in self.options.arguments:
+                time.sleep(36000)
+                return False
+            return None
+        
 
 def selenium_download_all(urls):
     browser = WebdriverProfile()
@@ -175,7 +222,13 @@ def selenium_download_all(urls):
 
     for index, url in enumerate(urls, start=1):
         logger.info(f"Переход к URL {index}/{len(urls)}: {url}")
-        browser.ofd_direct_download(url)
+
+        if 'https://pk.ofd.ru/api/' in url:
+            browser.ofd_ru_download(url)
+            
+        if 'https://org.1-ofd.ru/api/' in url:
+            browser.one_ofd_download(url)
+
         before_download = set(os.listdir(DOWNLOAD_DIR))  # Сохраняем текущие файлы
         logger.debug(f"{before_download = }")
 
