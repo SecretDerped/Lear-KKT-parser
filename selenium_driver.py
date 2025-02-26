@@ -1,24 +1,21 @@
 import inspect
 import logging
-import shutil
 import sys
-import tempfile
 import traceback
 from functools import wraps
 import time
 import os
 
-import requests
-
 from selenium.common import InvalidSessionIdException, TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver import Chrome, ChromeOptions
-from selenium.webdriver.chrome.service import Service
+#from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support.wait import WebDriverWait
 
-from config import DOWNLOAD_DIR, OFD_RU_LOGIN_URL, OFD_RU_USERNAME, OFD_RU_PASSWORD, ONE_OFD_PASSWORD, ONE_OFD_USERNAME
+from config import DOWNLOAD_DIR, OFD_RU_LOGIN_URL, OFD_RU_USERNAME, OFD_RU_PASSWORD, ONE_OFD_PASSWORD, \
+    DOWNLOAD_URLS, ONE_OFD_LOGIN_URL, ONE_OFD_USERNAME, ATOL_SIGMA_USERNAME, ATOL_SIGMA_PASSWORD, ATOL_SIGMA_LOGIN_URL
 
 logger = logging.getLogger(__name__)
 
@@ -74,25 +71,25 @@ def log_webdriver_action(func):
 class WebdriverProfile:
     def __init__(self):
         self.options = ChromeOptions()
-        self.options.add_argument("--user-data-dir=/root/browser_profile")
+        self.options.add_argument("--user-data-dir=/home/user/Code/Lear-KKT-parser/browser_profile")
         self.options.add_argument('--profile-directory=Profile 1')
-        self.options.add_argument("--headless")
+        #self.options.add_argument("--headless")
         self.options.add_argument("--no-sandbox")
         self.options.add_argument("--disable-dev-shm-usage")
-        self.options.add_argument("--disable-gpu")
+        #self.options.add_argument("--disable-gpu")
         self.options.add_argument("--window-size=1280,720")
         self.options.add_argument("--disable-extensions")
         self.options.add_argument("--disable-infobars")
         self.options.add_argument("--disable-browser-side-navigation")
         self.options.add_argument("--disable-features=VizDisplayCompositor")
-        self.options.binary_location = "/usr/bin/google-chrome"
+        #self.options.binary_location = "/usr/bin/google-chrome"
         self.options.add_experimental_option("prefs", {
             "download.default_directory": DOWNLOAD_DIR,
             "download.prompt_for_download": False,
             "safebrowsing.enabled": True,
         })
-        self.service = Service('/usr/local/bin/chromedriver')
-        self.driver = Chrome(service=self.service, options=self.options)
+        #self.service = Service('/usr/local/bin/chromedriver')
+        self.driver = Chrome(options=self.options)
         self.driver.implicitly_wait(20)
 
     @log_print
@@ -143,24 +140,12 @@ class WebdriverProfile:
 
     @log_print
     def ofd_ru_download(self, url):
-        try:
+        self.driver.get(url)
+        # Если при загрузке найден элемент ошибки, выполняет скрипт авторизации
+        if 'Errors' in self.driver.page_source:
+            self.ofd_ru_login()
             self.driver.get(url)
-            # Если при загрузке найден элемент ошибки, выполняет скрипт авторизации
-            if 'Errors' in self.driver.page_source:
-                self.ofd_ru_login()
-                self.driver.get(url)
-            return 'True'
-
-        except InvalidSessionIdException:
-            logging.critical(f'{traceback.format_exc()}')
-            sys.exit(1)
-
-        except Exception as e:
-            logging.warning(f'{e}: {traceback.format_exc()}')
-            if '--headless' in self.options.arguments:
-                time.sleep(36000)
-                return False
-            return None
+        return 'True'
 
     @log_print
     def one_ofd_login(self):
@@ -168,47 +153,104 @@ class WebdriverProfile:
         click = self.click
         driver = self.driver
 
-        driver.get(OFD_RU_LOGIN_URL)
+        driver.get(ONE_OFD_LOGIN_URL)
 
         login_input_xpath = '/html/body/app-root/div/div/div/registration-login-mail/div/div/div/div/app-taxpayer-input/div/div/input'
         login_field = find(login_input_xpath)
         login_field.send_keys(ONE_OFD_USERNAME)
 
-        contune_button_xpath = "/html/body/app-root/div/div/div/registration-login-mail/div/div/div/div/div/app-button"
-        contune_button = find(contune_button_xpath)
-        click(contune_button)
+        continue_button_xpath = "/html/body/app-root/div/div/div/registration-login-mail/div/div/div/div/div/app-button"
+        continue_button = find(continue_button_xpath)
+        click(continue_button)
 
         password_input_xpath = '/html/body/app-root/div/div/div/registration-login-password/div/div/div/app-taxpayer-input/div/div/input'
         password_field = find(password_input_xpath)
         password_field.send_keys(ONE_OFD_PASSWORD)
 
-        contune_button_xpath = '/html/body/app-root/div/div/div/registration-login-password/div/div/div/div[2]/app-button'
-        contune_button = find(contune_button_xpath)
-        click(contune_button)
+        continue_button_xpath = '/html/body/app-root/div/div/div/registration-login-password/div/div/div/div[2]/app-button'
+        continue_button = find(continue_button_xpath)
+        click(continue_button)
 
         return True
 
     @log_print
     def one_ofd_download(self, url):
-        try:
+        self.driver.get(url)
+        # Если при загрузке найден элемент ошибки, выполняет скрипт авторизации
+        if 'invalid' in self.driver.page_source:
+            self.one_ofd_login()
+            time.sleep(1)
             self.driver.get(url)
-            # Если при загрузке найден элемент ошибки, выполняет скрипт авторизации
-            if 'invalid' in self.driver.page_source:
-                self.one_ofd_login()
-                self.driver.get(url)
-            return 'True'
-
-        except InvalidSessionIdException:
-            logging.critical(f'{traceback.format_exc()}')
-            sys.exit(1)
-
-        except Exception as e:
-            logging.warning(f'{e}: {traceback.format_exc()}')
-            if '--headless' in self.options.arguments:
-                time.sleep(36000)
-                return False
-            return None
+        return 'True'
         
+    @log_print
+    def atol_sigma_login(self):
+        find = self.find
+        click = self.click
+        driver = self.driver
+
+        driver.get(ATOL_SIGMA_LOGIN_URL)
+
+        enter_button_xpath = '/html/body/div[1]/div/div[1]/main/div[2]/div[2]/div[1]/button'
+        enter_button = find(enter_button_xpath)
+        click(enter_button)
+
+        login_input_xpath = '/html/body/div[2]/div/div[2]/div/div/div[1]/form/div[1]/div/div/input[1]'
+        login_input = find(login_input_xpath)
+        login_input.send_keys(ATOL_SIGMA_USERNAME)
+
+        password_input_xpath = '/html/body/div[2]/div/div[2]/div/div/div[1]/form/div[2]/div/div/input'
+        password_field = find(password_input_xpath)
+        password_field.send_keys(ATOL_SIGMA_PASSWORD)
+
+        submit_button_xpath = "/html/body/div[2]/div/div[2]/div/div/div[1]/form/div[4]/input[2]"
+        submit_button = find(submit_button_xpath)
+        click(submit_button)
+
+        close_news_button_xpath = '/html/body/div[3]/div/div/div/div[1]/span[2]'
+        if close_news_button := find(close_news_button_xpath):
+            click(close_news_button)
+
+        return True
+
+    @log_print
+    def atol_sigma_download(self, url, mode, date):
+        find = self.find
+        click = self.click
+        driver = self.driver
+        find_all = self.find_all
+
+        driver.get(url)
+        # Если при загрузке найден элемент ошибки, выполняет скрипт авторизации
+        if driver.current_url == ATOL_SIGMA_LOGIN_URL:
+            self.atol_sigma_login()
+            #time.sleep(1)
+            driver.get(url)
+
+        filter_button_xpath = '/html/body/div[1]/div/div[2]/div[1]/div[1]/div[1]/div/button'
+        filter_button = find(filter_button_xpath)
+        click(filter_button)
+
+        filter_list_xpath = '/html/body/div[2]/div[6]/div'
+
+        filter_item_mode = 'Отключение тарифа кассы' if mode == 'ofd' else 'Отключение ФН'
+        filter_item_xpath = filter_list_xpath + f'/div[@text="{filter_item_mode}"]'
+        filter_item = find(filter_item_xpath)
+        click(filter_item)
+
+        date_choose_button_xpath = '/html/body/div[2]/div[6]/div/div/div[7]/div/div/div[11]/div[1]'
+        date_choose_button = find(date_choose_button_xpath)
+        click(date_choose_button)
+
+        calendar_xpath = '/html/body/div[2]/div[6]/div/div/div[7]/div/div/div[11]/div[2]/div[2]/div[1]'
+        first_day_first_month = find_all(f'{calendar_xpath}//div[@text="1"]')[0]
+        first_day_second_month = find_all(f'{calendar_xpath}//div[@text="1"]')[1]
+
+        last_day_first_month = find_all(f'{calendar_xpath}//div[contains(@class, "lastDayOfMounth")]')[0]
+        last_day_second_month = find_all(f'{calendar_xpath}//div[contains(@class, "lastDayOfMounth")]')[1]
+
+        return 'True'
+
 
 def selenium_download_all(urls):
     browser = WebdriverProfile()
@@ -219,15 +261,26 @@ def selenium_download_all(urls):
         logger.warning("Список URL пуст.")
         return downloaded_files
 
-
     for index, url in enumerate(urls, start=1):
         logger.info(f"Переход к URL {index}/{len(urls)}: {url}")
-
-        if 'https://pk.ofd.ru/api/' in url:
-            browser.ofd_ru_download(url)
-            
-        if 'https://org.1-ofd.ru/api/' in url:
-            browser.one_ofd_download(url)
+        try:
+            if 'pk.ofd.ru/api/' in url:
+                browser.ofd_ru_download(url)
+            elif 'org.1-ofd.ru/api/' in url:
+                browser.one_ofd_download(url)
+            elif 'sigma.ru' in url:
+                browser
+            else:
+                raise Exception('Unexceptional URL')
+        except InvalidSessionIdException:
+            logging.critical(f'{traceback.format_exc()}')
+            sys.exit(1)
+        except Exception as e:
+            logging.warning(f'{e}: {traceback.format_exc()}')
+            if '--headless' in browser.options.arguments:
+                time.sleep(36000)
+                return False
+            return None
 
         before_download = set(os.listdir(DOWNLOAD_DIR))  # Сохраняем текущие файлы
         logger.debug(f"{before_download = }")
@@ -279,8 +332,9 @@ def selenium_download_all(urls):
     return downloaded_files
 
 
-
 if __name__ == '__main__':
     browser = WebdriverProfile()
+    browser.atol_sigma_login()
+    #selenium_download_all(DOWNLOAD_URLS)
     time.sleep(10000)
     browser.close()

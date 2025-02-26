@@ -197,8 +197,14 @@ def input_end_date(update: Update, context: CallbackContext) -> int:
 
 # ========== 4. Подготовка DataFrame ==========
 
-def prepare_ofd_ru_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
-    """Подготовка и фильтрация данных в DataFrame."""
+def prepare_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
+
+    ofd_ru_df = form_odf_ru_dataframe(df, selected_filter, start_date, end_date)
+    one_ofd_df = form_one_ofd_dataframe(df, selected_filter, start_date, end_date)
+
+def form_odf_ru_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
+    """Подготовка и фильтрация данных с сайта "ofd.ru" в DataFrame."""
+
     df["ИНН"] = df["ИНН"].astype(str)
     df["Заводской номер ККТ"] = df["Заводской номер ККТ"].astype(str)
 
@@ -215,7 +221,8 @@ def prepare_ofd_ru_dataframe(df: pd.DataFrame, selected_filter, start_date, end_
         "Окончание срока ФН",
         "Касса оплачена до",
         "Дата последнего ФД",
-        "Примечание"
+        "Примечание",
+        "Источник"
     ]
 
     date_column = ''
@@ -234,6 +241,8 @@ def prepare_ofd_ru_dataframe(df: pd.DataFrame, selected_filter, start_date, end_
         lifetime +
         ", Последний ФД: " + df["Дата последнего ФД"].dt.strftime('%d.%m.%Y').fillna('')
     )
+    
+    df["Источник"] = 'Пётр сервис'
 
     df = df[columns_to_keep]
     mask = df[date_column].between(start_date, end_date)
@@ -241,7 +250,55 @@ def prepare_ofd_ru_dataframe(df: pd.DataFrame, selected_filter, start_date, end_
 
     return df
 
+def form_one_ofd_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
+    """Подготовка и фильтрация данных с сайта "1-ofd.org" в DataFrame."""
+    
+    df["Регистрационный номер ККТ"] = df["Регистрационный номер ККТ"].astype(str)
+    df["Номер ФН"] = df["Номер ФН"].astype(str)
 
+    date_columns = ["Дата окончание действия ФН", "Дата остановки тарифа"]
+    for col in date_columns:
+        df[col] = pd.to_datetime(df[col], errors='coerce')
+
+    columns_to_keep = [
+        "Регистрационный номер ККТ",
+        "Номер ФН",
+        "Дата окончание действия ФН",
+        "Наименование тарифа",
+        "Статус тарификации",
+        "Дата остановки тарифа",
+        "Клиент",
+        "Примечание",
+        "Источник"
+    ]
+
+    date_column = ''
+    lifetime = ''
+    if selected_filter == FILTER_FN:
+        lifetime = ", Срок ФН: " + df["Дата окончание действия ФН"].dt.strftime('%d.%m.%Y').fillna('')
+        date_column = "Дата окончание действия ФН"
+    elif selected_filter == FILTER_TARIFF:
+        lifetime = ", Срок ОФД: " + df["Дата остановки тарифа"].dt.strftime('%d.%m.%Y').fillna('')
+        date_column = "Дата остановки тарифа"
+
+    df["Примечание"] = (
+        "Модель: " + df["Модель кассы"].fillna('') +
+        ", РНК: " + df["Регистрационный номер ККТ"].fillna('') +
+        ", Статус тарифа: " + df["Статус тарификации"].fillna('') +
+        lifetime
+    )
+    
+    df["Источник"] = 'Первый ОФД'
+
+    # Для корректной сортировки результатов в таблице по датам назовём колонки так же, как в первой таблице, чтобы следующую функцию не перелопачивать
+    df['Дата окончание действия ФН'] = df['Окончание срока ФН']
+    df['Дата остановки тарифа'] = df['Касса оплачена до']
+
+    df = df[columns_to_keep]
+    mask = df[date_column].between(start_date, end_date)
+    df = df[mask]
+
+    return df
 # ========== 5. Основная функция process_data ==========
 
 def process_data(
@@ -273,7 +330,7 @@ def process_data(
         for file_path in downloaded_file_paths:
             logger.info(f"Обработка файла: {file_path}")
             df = pd.read_excel(file_path)
-            df_prepared = prepare_ofd_ru_dataframe(df, selected_filter, start_date, end_date)
+            df_prepared = prepare_dataframe(df, selected_filter, start_date, end_date)
 
             if not df_prepared.empty:
                 processed_dfs.append(df_prepared)
