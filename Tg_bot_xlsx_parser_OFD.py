@@ -9,18 +9,13 @@ from calendar import monthrange
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext, Filters, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler
 
-from config import DOWNLOAD_DIR, DOWNLOAD_URLS
-from selenium_driver import selenium_download_all
+from config import DOWNLOAD_DIR, DOWNLOAD_URLS, FILTER_FN, FILTER_TARIFF
+from selenium_driver import direct_files_download
 
 logger = getLogger(__name__)
 
 # Состояния
 WELCOME, CHOOSING, TYPING_START_DATE, TYPING_END_DATE = range(4)
-
-# Фильтры
-FILTER_FN = 'FILTER_FN'
-FILTER_TARIFF = 'FILTER_TARIFF'
-
 
 # ========== 1. Приветственное сообщение (5 кнопок) ==========
 
@@ -197,8 +192,17 @@ def input_end_date(update: Update, context: CallbackContext) -> int:
 
 # ========== 4. Подготовка DataFrame ==========
 
-def prepare_ofd_ru_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
-    """Подготовка и фильтрация данных в DataFrame."""
+def prepare_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
+    if df['Источник']:
+        return df
+    try:
+        return form_odf_ru_dataframe(df, selected_filter, start_date, end_date)
+    except KeyError:
+        return form_one_ofd_dataframe(df, selected_filter, start_date, end_date)
+
+def form_odf_ru_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
+    """Подготовка и фильтрация данных с сайта "ofd.ru" в DataFrame."""
+
     df["ИНН"] = df["ИНН"].astype(str)
     df["Заводской номер ККТ"] = df["Заводской номер ККТ"].astype(str)
 
@@ -215,7 +219,9 @@ def prepare_ofd_ru_dataframe(df: pd.DataFrame, selected_filter, start_date, end_
         "Окончание срока ФН",
         "Касса оплачена до",
         "Дата последнего ФД",
-        "Примечание"
+        "Адрес расчетов",
+        "Примечание",
+        "Источник"
     ]
 
     date_column = ''
@@ -234,6 +240,8 @@ def prepare_ofd_ru_dataframe(df: pd.DataFrame, selected_filter, start_date, end_
         lifetime +
         ", Последний ФД: " + df["Дата последнего ФД"].dt.strftime('%d.%m.%Y').fillna('')
     )
+    
+    df["Источник"] = 'Пётр сервис'
 
     df = df[columns_to_keep]
     mask = df[date_column].between(start_date, end_date)
@@ -241,6 +249,54 @@ def prepare_ofd_ru_dataframe(df: pd.DataFrame, selected_filter, start_date, end_
 
     return df
 
+def form_one_ofd_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
+    """Подготовка и фильтрация данных с сайта "1-ofd.org" в DataFrame."""
+    
+    df["Регистрационный номер ККТ"] = df["Регистрационный номер ККТ   "].astype(str)
+    df["Номер ФН"] = df["Номер ФН   "].astype(str)
+
+    date_columns = ["Дата окончание действия ФН   ", "Дата остановки тарифа   "]
+    for col in date_columns:
+        df[col.strip()] = pd.to_datetime(df[col], errors='coerce')
+
+    columns_to_keep = [
+        "Название организации",
+        "Регистрационный номер ККТ",
+        "Номер ФН",
+        "Адрес расчетов",
+        "Окончание срока ФН",
+        "Касса оплачена до",
+        "Примечание",
+        "Источник"
+    ]
+
+    date_column = ''
+    lifetime = ''
+    if selected_filter == FILTER_FN:
+        lifetime = ", Срок ФН: " + df["Дата окончание действия ФН"].dt.strftime('%d.%m.%Y').fillna('')
+        date_column = "Окончание срока ФН"
+    elif selected_filter == FILTER_TARIFF:
+        lifetime = ", Срок ОФД: " + df["Дата остановки тарифа"].dt.strftime('%d.%m.%Y').fillna('')
+        date_column = "Касса оплачена до"
+
+    df["Примечание"] = (
+        "РНК: " + df["Регистрационный номер ККТ"].fillna('') +
+        ", Статус тарифа: " + df["Статус тарификации   "].fillna('') + ' ' + df['Наименование тарифа   '].fillna('') +
+        lifetime
+    )
+    
+    # Для корректной сортировки результатов в таблице по датам назовём колонки так же, как в первой таблице
+    df["Источник"] = 'Первый ОФД'
+    df["Название организации"] = df['Клиент   ']
+    df['Окончание срока ФН'] = df['Дата окончание действия ФН']
+    df['Касса оплачена до'] = df['Дата остановки тарифа']
+    df['Адрес расчетов'] = df['Адрес торговой точки   ']
+
+    df = df[columns_to_keep]
+    mask = df[date_column].between(start_date, end_date)
+    df = df[mask]
+
+    return df
 
 # ========== 5. Основная функция process_data ==========
 
@@ -261,19 +317,21 @@ def process_data(
 
     try:
         logger.info("Начало загрузки файлов...")
-        downloaded_file_paths = selenium_download_all(DOWNLOAD_URLS)
+        # msg передаётся далее, чтобы бот писал прогресс в ответ, а то люди думают, что он виснет
+        downloaded_file_paths = direct_files_download(msg, selected_filter, start_date, end_date, DOWNLOAD_URLS)
 
         if not downloaded_file_paths:
             logger.warning("Нет файлов для обработки. Проверьте скачанные файлы.")
             msg.reply_text("Никаких данных для обработки не получено.")
             return welcome(update, context)
 
+        msg.reply_text("Формирую таблицу...")
         # Обработка xlsx
         processed_dfs = []
         for file_path in downloaded_file_paths:
             logger.info(f"Обработка файла: {file_path}")
             df = pd.read_excel(file_path)
-            df_prepared = prepare_ofd_ru_dataframe(df, selected_filter, start_date, end_date)
+            df_prepared = prepare_dataframe(df, selected_filter, start_date, end_date)
 
             if not df_prepared.empty:
                 processed_dfs.append(df_prepared)
@@ -296,12 +354,12 @@ def process_data(
 
         sorted_df = combined_df.sort_values(by=date_column, ascending=True)
 
-        cols_to_drop = [
-            "Модель кассы", "Заводской номер ККТ",
-            "Тип ФН", "Дата последнего ФД",
-            "Окончание срока ФН", "Касса оплачена до"
-        ]
-        df_filtered = sorted_df.drop(columns=cols_to_drop)
+        # cols_to_drop = [
+        #     "Модель кассы", "Заводской номер ККТ",
+        #     "Тип ФН", "Дата последнего ФД",
+        #     "Окончание срока ФН", "Касса оплачена до"
+        # ]
+        df_filtered = sorted_df#.drop(columns=cols_to_drop)
 
         output_file_path = os.path.join(DOWNLOAD_DIR, file_name)
         with pd.ExcelWriter(output_file_path, engine='xlsxwriter') as writer:
