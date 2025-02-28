@@ -1,3 +1,4 @@
+from datetime import datetime
 import inspect
 import logging
 import sys
@@ -202,7 +203,7 @@ class WebdriverProfile:
         return True
     
     @log_print
-    def atol_sigma_download(self, url, start_date, end_date, selected_filter):
+    def atol_sigma_download(self, url, selected_filter, start_date, end_date):
         find = self.find
         click = self.click
         driver = self.driver
@@ -231,7 +232,15 @@ class WebdriverProfile:
         date_choose_button = find('/html/body/div[2]/div[6]/div/div/div[7]/div/div/div[11]/div[1]')
         click(date_choose_button)
 
-        if date == 'next_month':
+        start_month_search = start_date.month
+        end_month_search = end_date.month
+        # Кнопка кастомного выбора даты пока выключена. Сейчас механизм такой:
+        # Пользователь выбирает выгрузку за текущий месяц или за следующий. Считаем.
+        # Если выбран следующий месяц, то разница между текущим и следующим
+        # месяцем в start_date и end_date будет 1.
+        delta = abs(int(end_month_search) - int(start_month_search))
+
+        if delta > 0:
             next_second_month = '/html/body/div[2]/div[6]/div/div/div[7]/div/div/div[11]/div[2]/div[2]/div[1]/div[2]/div/div/div/div[1]/div[1]/span[2]'
             click(find(next_second_month))
             time.sleep(2)
@@ -241,7 +250,7 @@ class WebdriverProfile:
             click(button)
             time.sleep(1)
 
-        if date == 'next_month':
+        if delta > 0:
             next_first_month = '/html/body/div[2]/div[6]/div/div/div[7]/div/div/div[11]/div[2]/div[2]/div[1]/div[1]/div/div/div/div[1]/div[1]/span[2]'
             click(find(next_first_month))
             time.sleep(2)
@@ -339,11 +348,11 @@ def direct_files_download(msg,  # объект telegram.Message (update.message 
 
         # Ожидаем появления нового файла и проверки его статуса
         try:
-            WebDriverWait(browser.driver, 20).until(
+            WebDriverWait(browser.driver, 30).until(
                 lambda driver: any(file.endswith('.xlsx') and file not in before_download for file in os.listdir(DOWNLOAD_DIR))
             )
         except TimeoutException:
-            logger.error(f"Загрузка из {url} не завершилась вовремя.")
+            logger.error(f"Загрузка из {url} не завершается.")
             return None
 
         # Проверка, что файл завершил загрузку и не является .crdownload

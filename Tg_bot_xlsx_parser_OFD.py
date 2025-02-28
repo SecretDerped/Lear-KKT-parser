@@ -39,7 +39,7 @@ def welcome(update: Update, context: CallbackContext) -> int:
             InlineKeyboardButton("ОФД текущего месяца", callback_data="OFD_THIS_MONTH"),
             InlineKeyboardButton("ОФД следующего месяца", callback_data="OFD_NEXT_MONTH")
         ],
-        [InlineKeyboardButton("Другое", callback_data="CUSTOM_CHOICE")],
+        #[InlineKeyboardButton("Другое", callback_data="CUSTOM_CHOICE")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
