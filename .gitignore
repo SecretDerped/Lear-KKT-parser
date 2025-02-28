@@ -1296,3 +1296,4 @@ browser_profile/optimization_guide_model_store/9/DC3E7836E4D434CA/328016985D9BEE
 browser_profile/optimization_guide_model_store/9/DC3E7836E4D434CA/328016985D9BEE41/model.tflite
 browser_profile/segmentation_platform/ukm_db
 browser_profile/segmentation_platform/ukm_db-journal
+__pycache__/config.cpython-312.pyc
