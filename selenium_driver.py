@@ -23,9 +23,8 @@ from selenium.common.exceptions import NoSuchElementException
 
 from config import DOWNLOAD_DIR, FILTER_TARIFF, OFD_RU_LOGIN_URL, OFD_RU_USERNAME, OFD_RU_PASSWORD, ONE_OFD_PASSWORD, \
     ONE_OFD_LOGIN_URL, ONE_OFD_USERNAME, ATOL_SIGMA_USERNAME, ATOL_SIGMA_PASSWORD, ATOL_SIGMA_LOGIN_URL
-
+from xlsx_utils import form_sigma_dataframe
 logger = logging.getLogger(__name__)
-
 
 def log_print(func):
     @wraps(func)
@@ -35,13 +34,13 @@ def log_print(func):
         bound.apply_defaults()
         all_args = {arg: value for arg, value in bound.arguments.items() if
                     arg != 'self'}  # Создаём словарь аргументов, исключая 'self'
-        logging.info(f'CALL {func.__name__}{all_args}...')
+        logger.info(f'CALL {func.__name__}{all_args}...')
         start_time = time.time()
 
         result = func(*args, **kwargs)
 
         exec_time = time.time() - start_time
-        logging.info(f'RESULT {func.__name__}{all_args} ({exec_time:.3f} sec.):\n{result} ')
+        logger.info(f'RESULT {func.__name__}{all_args} ({exec_time:.3f} sec.):\n{result} ')
         return result
 
     return _wrapper
@@ -55,7 +54,7 @@ def log_webdriver_action(func):
         description = "WebDriver" if not isinstance(element_or_driver, WebElement) else "WebElement"
         # Дополнительно логгируем тип элемента и его атрибуты, если это WebElement
         if description != "WebElement":
-            logging.info(f"CALL {func.__name__} on {description}...")
+            logger.info(f"CALL {func.__name__} on {description}...")
         else:
             try:
                 text = element_or_driver.text
@@ -64,12 +63,12 @@ def log_webdriver_action(func):
                     element_description += f" with text:\n'{text}'"
             except:
                 element_description = "unknown element"
-            logging.info(f"CALL {func.__name__} on {element_description}...")
+            logger.info(f"CALL {func.__name__} on {element_description}...")
 
         start_time = time.time()
         result = func(*args, **kwargs)
         exec_time = time.time() - start_time
-        logging.info(f"RESULT {func.__name__} is completed for {exec_time:.3f} sec.")
+        logger.info(f"RESULT {func.__name__} is completed for {exec_time:.3f} sec.")
         return result
 
     return _wrapper
@@ -84,7 +83,7 @@ class WebdriverProfile:
         self.options.add_argument("--no-sandbox")
         self.options.add_argument("--disable-dev-shm-usage")
         self.options.add_argument("--disable-gpu")
-        self.options.add_argument("--window-size=1280,720")
+        self.options.add_argument("--window-size=1600,900")
         self.options.add_argument("--disable-extensions")
         self.options.add_argument("--disable-infobars")
         self.options.add_argument("--disable-browser-side-navigation")
@@ -215,29 +214,32 @@ class WebdriverProfile:
         if driver.current_url == ATOL_SIGMA_LOGIN_URL:
             self.atol_sigma_login()
             driver.get(url)
+        time.sleep(3)
 
-        filter_button = find('/html/body/div[1]/div/div[2]/div[1]/div[1]/div[1]/div/button')
-        click(filter_button)
-
-        filter_item_mode = 'Отключение тарифа кассы' if selected_filter == FILTER_TARIFF else 'Отключение ФН'
-        filter_item = find(f"//div[text()='{filter_item_mode}']")
         try:
-            click(filter_item)
+            filter_button = find('/html/body/div[1]/div/div[2]/div[1]/div[1]/div[1]/div/button')
+            click(filter_button)
         except NoSuchElementException:
             close_news_button = find('/html/body/div[3]/div/div/div/div[1]/span[2]')
             click(close_news_button)
             time.sleep(2)
-            click(filter_item)
+            filter_button = find('/html/body/div[1]/div/div[2]/div[1]/div[1]/div[1]/div/button')
+            click(filter_button)
+        time.sleep(2)
 
-        date_choose_button = find('/html/body/div[2]/div[6]/div/div/div[7]/div/div/div[11]/div[1]')
+        filter_item_mode = 'Отключение тарифа кассы' if selected_filter == FILTER_TARIFF else 'Отключение ФН'
+        filter_item = find(f"//div[text()='{filter_item_mode}']")
+        click(filter_item)
+
+        date_choose_button = find(f"//div[text()='Произвольный интервал']")
         click(date_choose_button)
 
-        start_month_search = start_date.month
-        end_month_search = end_date.month
         # Кнопка кастомного выбора даты пока выключена. Сейчас механизм такой:
         # Пользователь выбирает выгрузку за текущий месяц или за следующий. Считаем.
         # Если выбран следующий месяц, то разница между текущим и следующим
         # месяцем в start_date и end_date будет 1.
+        start_month_search = start_date.month
+        end_month_search = end_date.month
         delta = abs(int(end_month_search) - int(start_month_search))
 
         if delta > 0:
@@ -265,41 +267,15 @@ class WebdriverProfile:
 
         rows = driver.find_elements(By.CSS_SELECTOR, "div[id^='clientsTable_row_']")
 
-        data = []
+        raw_data = []
         for row in rows:
             cells = row.find_elements(By.CSS_SELECTOR, "div[data-name='cell']")
-            data.append({cell.get_attribute("data-id-column"): cell.text.strip() for cell in cells})
+            raw_data.append({cell.get_attribute("data-id-column"): cell.text.strip() for cell in cells})
 
-        columns_to_keep = [
-            'Название организации',
-            'ИНН',
-            'Окончание срока ФН',
-            'Тариф Sigma',
-            'Касса оплачена до',
-            'Тип бизнеса',
-            'Кол-во касс',
-            'Срок модуля "Маркировка"',
-            'Примечание',
-            'Источник'
-        ]
-
-        # Создаем DataFrame и трансформируем за один проход
-        df = pd.DataFrame(data).rename(columns={
-            'companyName': 'Название организации',
-            'INN': 'ИНН',
-            'businessType': 'Тип бизнеса',
-            'endTrialDate': 'Срок модуля "Маркировка"',
-            'tariff': 'Тариф Sigma',
-            'disconnectDate': 'Касса оплачена до',
-            'fiscalExpiration': 'Окончание срока ФН',
-            'deviceCount': 'Кол-во касс'
-        })
-        df['Примечание'] = 'Указан срок оплаты касс по тарифам Sigma'
-        df['Источник'] = 'АТОЛ Sigma'
-        # Упорядочиваем колонки
-        df = df[columns_to_keep]
+        df = form_sigma_dataframe(raw_data)
         # Сохраняем
         df.to_excel(f'{DOWNLOAD_DIR}/sigma_data.xlsx', index=False, engine='openpyxl')
+
         return 'True'
 
 
@@ -317,34 +293,37 @@ def direct_files_download(msg,  # объект telegram.Message (update.message 
         return downloaded_files
 
     for index, url in enumerate(urls, start=1):
+        counter = f'{index}/{len(urls)}'
+        before_download = set(os.listdir(DOWNLOAD_DIR))  # Сохраняем текущие файлы
+        logger.debug(f"{before_download = }")
         logger.info(f"Переход к URL {index}/{len(urls)}: {url}")
         try:
             if 'pk.ofd.ru/api/' in url:
                 browser.ofd_ru_download(url)
-                msg.reply_text(f"{index}. Данные от OFD.ru получены.")
+                msg.reply_text(f"{counter}. Данные от OFD.ru получены.")
             elif 'org.1-ofd.ru/api/' in url:
                 browser.one_ofd_download(url)
-                msg.reply_text(f'{index}. Данные от "Первый ОФД" получены.')
+                msg.reply_text(f'{counter}. Данные от "Первый ОФД" получены.')
             elif 'sigma' in url:
                 browser.atol_sigma_download(url, start_date, end_date, selected_filter)
-                msg.reply_text(f"{index}. Данные по АТОЛ Sigma получены.")
+                msg.reply_text(f"{counter}. Данные по АТОЛ Sigma получены.")
             elif 'kassatka' in url:
                 #browser.kassatka_download(url)
-                msg.reply_text(f"{index}. Данные по Кассатке получены.")
+                msg.reply_text(f"{counter}. Данные по Кассатке получены.")
             else:
                 raise Exception('Unexceptional URL')
         except InvalidSessionIdException:
-            logging.critical(f'{traceback.format_exc()}')
+            logger.critical(f'{traceback.format_exc()}')
+            browser.close()
+            msg.reply_text(f"{counter}: внутренняя ошибка. Запустите программу выгрузки заново.")
             sys.exit(1)
         except Exception as e:
-            logging.warning(f'{e}: {traceback.format_exc()}')
-            if '--headless' in browser.options.arguments:
+            logger.warning(f'{e}: {traceback.format_exc()}')
+            if '--headless' not in browser.options.arguments:
                 time.sleep(36000)
                 return False
-            return None
-
-        before_download = set(os.listdir(DOWNLOAD_DIR))  # Сохраняем текущие файлы
-        logger.debug(f"{before_download = }")
+            msg.reply_text(f"{counter}: не удалось выгрузить данные из {url}")
+            continue
 
         # Ожидаем появления нового файла и проверки его статуса
         try:
@@ -353,7 +332,7 @@ def direct_files_download(msg,  # объект telegram.Message (update.message 
             )
         except TimeoutException:
             logger.error(f"Загрузка из {url} не завершается.")
-            return None
+            continue
 
         # Проверка, что файл завершил загрузку и не является .crdownload
         after_download = set(os.listdir(DOWNLOAD_DIR))
@@ -389,8 +368,9 @@ def direct_files_download(msg,  # объект telegram.Message (update.message 
         # Обновляем список файлов для следующей итерации
         before_download = after_download
 
-    browser.close() # Ещё раз. Браузер необхоодимо закрывать после каждой сессии, иначе будет либо утечка памяти, либо  программа крашнется, попытавшись включить уже включчённую сессию
-    # В дальнейшем нужно добавить в класс поддержку контекстного менеджера
+    browser.close() # Ещё раз. Браузер необхоодимо закрывать после каждой сессии, иначе будет либо утечка памяти,
+    # либо  программа крашнется, попытавшись включить уже включчённую сессию.
+    # Контекстный менеджер не поддерживается вебдрайвером.
     return downloaded_files
 
 
