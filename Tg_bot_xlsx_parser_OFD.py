@@ -1,26 +1,22 @@
+import logging
 import os
 
 import pandas as pd
 
-from logging import getLogger
 from datetime import datetime, date
 from calendar import monthrange
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext, Filters, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler
 
-from config import DOWNLOAD_DIR, DOWNLOAD_URLS
-from selenium_driver import selenium_download_all
+from config import DOWNLOAD_DIR, DOWNLOAD_URLS, FILTER_FN, FILTER_TARIFF
+from selenium_driver import direct_files_download
+from xlsx_utils import form_odf_ru_dataframe, form_one_ofd_dataframe
 
-logger = getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # Состояния
 WELCOME, CHOOSING, TYPING_START_DATE, TYPING_END_DATE = range(4)
-
-# Фильтры
-FILTER_FN = 'FILTER_FN'
-FILTER_TARIFF = 'FILTER_TARIFF'
-
 
 # ========== 1. Приветственное сообщение (5 кнопок) ==========
 
@@ -44,7 +40,7 @@ def welcome(update: Update, context: CallbackContext) -> int:
             InlineKeyboardButton("ОФД текущего месяца", callback_data="OFD_THIS_MONTH"),
             InlineKeyboardButton("ОФД следующего месяца", callback_data="OFD_NEXT_MONTH")
         ],
-        [InlineKeyboardButton("Другое", callback_data="CUSTOM_CHOICE")],
+        #[InlineKeyboardButton("Другое", callback_data="CUSTOM_CHOICE")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -198,49 +194,12 @@ def input_end_date(update: Update, context: CallbackContext) -> int:
 # ========== 4. Подготовка DataFrame ==========
 
 def prepare_dataframe(df: pd.DataFrame, selected_filter, start_date, end_date):
-    """Подготовка и фильтрация данных в DataFrame."""
-    df["ИНН"] = df["ИНН"].astype(str)
-    df["Заводской номер ККТ"] = df["Заводской номер ККТ"].astype(str)
-
-    date_columns = ["Окончание срока ФН", "Касса оплачена до", "Дата последнего ФД"]
-    for col in date_columns:
-        df[col] = pd.to_datetime(df[col], errors='coerce')
-
-    columns_to_keep = [
-        "Название организации",
-        "ИНН",
-        "Модель кассы",
-        "Заводской номер ККТ",
-        "Тип ФН",
-        "Окончание срока ФН",
-        "Касса оплачена до",
-        "Дата последнего ФД",
-        "Примечание"
-    ]
-
-    date_column = ''
-    lifetime = ''
-    if selected_filter == FILTER_FN:
-        lifetime = ", Срок ФН: " + df["Окончание срока ФН"].dt.strftime('%d.%m.%Y').fillna('')
-        date_column = "Окончание срока ФН"
-    elif selected_filter == FILTER_TARIFF:
-        lifetime = ", Срок ОФД: " + df["Касса оплачена до"].dt.strftime('%d.%m.%Y').fillna('')
-        date_column = "Касса оплачена до"
-
-    df["Примечание"] = (
-        "Модель: " + df["Модель кассы"].fillna('') +
-        ", Номер: " + df["Заводской номер ККТ"].fillna('') +
-        ", Тип ФН: " + df["Тип ФН"].fillna('') +
-        lifetime +
-        ", Последний ФД: " + df["Дата последнего ФД"].dt.strftime('%d.%m.%Y').fillna('')
-    )
-
-    df = df[columns_to_keep]
-    mask = df[date_column].between(start_date, end_date)
-    df = df[mask]
-
-    return df
-
+    if df.get('Источник'):
+        return df
+    try:
+        return form_odf_ru_dataframe(df, selected_filter, start_date, end_date)
+    except KeyError:
+        return form_one_ofd_dataframe(df, selected_filter, start_date, end_date)
 
 # ========== 5. Основная функция process_data ==========
 
@@ -261,13 +220,14 @@ def process_data(
 
     try:
         logger.info("Начало загрузки файлов...")
-        downloaded_file_paths = selenium_download_all(DOWNLOAD_URLS)
+        # msg передаётся далее, чтобы бот писал прогресс в ответ, а то люди думают, что он виснет
+        downloaded_file_paths = direct_files_download(msg, selected_filter, start_date, end_date, DOWNLOAD_URLS)
 
         if not downloaded_file_paths:
             logger.warning("Нет файлов для обработки. Проверьте скачанные файлы.")
             msg.reply_text("Никаких данных для обработки не получено.")
-            return welcome(update, context)
 
+        msg.reply_text("Формирую таблицу...")
         # Обработка xlsx
         processed_dfs = []
         for file_path in downloaded_file_paths:
@@ -285,7 +245,6 @@ def process_data(
         if not processed_dfs:
             logger.warning("После фильтрации данных нет результатов.")
             msg.reply_text("После фильтрации данных нет результатов.")
-            return welcome(update, context)
 
         # Объединение и сохранение итогового Excel
         combined_df = pd.concat(processed_dfs, ignore_index=True)
@@ -296,12 +255,12 @@ def process_data(
 
         sorted_df = combined_df.sort_values(by=date_column, ascending=True)
 
-        cols_to_drop = [
-            "Модель кассы", "Заводской номер ККТ",
-            "Тип ФН", "Дата последнего ФД",
-            "Окончание срока ФН", "Касса оплачена до"
-        ]
-        df_filtered = sorted_df.drop(columns=cols_to_drop)
+        # cols_to_drop = [
+        #     "Модель кассы", "Заводской номер ККТ",
+        #     "Тип ФН", "Дата последнего ФД",
+        #     "Окончание срока ФН", "Касса оплачена до"
+        # ]
+        df_filtered = sorted_df#.drop(columns=cols_to_drop)
 
         output_file_path = os.path.join(DOWNLOAD_DIR, file_name)
         with pd.ExcelWriter(output_file_path, engine='xlsxwriter') as writer:
