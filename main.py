@@ -5,7 +5,7 @@ from Tg_bot_xlsx_parser_OFD import get_handler
 from config import TOKEN
 
 # Включаем логирование
-basicConfig(format='%(asctime)s: %(filename)s - %(levelname)s - %(message)s', level=DEBUG)
+basicConfig(format='%(asctime)s: %(filename)s - %(levelname)s - %(message)s', level=INFO)
 logger = logging.getLogger(__name__)
 
 def main():

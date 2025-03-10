@@ -10,7 +10,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext, Filters, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler
 
 from config import DOWNLOAD_DIR, DOWNLOAD_URLS, FILTER_FN, FILTER_TARIFF
-from selenium_driver import direct_files_download
+from job import download_files
 from xlsx_utils import form_odf_ru_dataframe, form_one_ofd_dataframe
 
 logger = logging.getLogger(__name__)
@@ -221,7 +221,7 @@ def process_data(
     try:
         logger.info("Начало загрузки файлов...")
         # msg передаётся далее, чтобы бот писал прогресс в ответ, а то люди думают, что он виснет
-        downloaded_file_paths = direct_files_download(msg, selected_filter, start_date, end_date, DOWNLOAD_URLS)
+        downloaded_file_paths = download_files(msg, selected_filter, start_date, end_date, DOWNLOAD_URLS)
 
         if not downloaded_file_paths:
             logger.warning("Нет файлов для обработки. Проверьте скачанные файлы.")

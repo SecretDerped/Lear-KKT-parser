@@ -12,7 +12,7 @@ DOWNLOAD_URLS = [
     'https://pk.ofd.ru/api/partner/v3/b3e111d3-f35e-4e8c-90ea-caa21c353b05/kkt/xlsx?filter={"version":3,"b2bAgreementId":"b3e111d3-f35e-4e8c-90ea-caa21c353b05","page":0,"pageSize":10,"groupPage":0,"groupPageSize":10}',
     'https://pk.ofd.ru/api/partner/v3/c3efe88c-ce2a-4d12-8cfe-0beba2254c48/kkt/xlsx?filter={"version":3,"b2bAgreementId":"c3efe88c-ce2a-4d12-8cfe-0beba2254c48","page":0,"pageSize":10,"groupPage":0,"groupPageSize":10}',
     'https://org.1-ofd.ru/api/cp-agent/clients/kkms/export?offset=%2B03:00&kkmStatus=0',
-    'https://manage.sigma.ru/clients'
+    #'https://manage.sigma.ru/clients'
 ]
 
 # Параметры авторизации
@@ -33,3 +33,4 @@ DOWNLOAD_DIR = "/root/Downloads"
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
+MAX_WORKERS = 5

@@ -1,78 +1,20 @@
-from datetime import datetime
-import inspect
+
 import logging
-import sys
-import traceback
-from functools import wraps
 import time
-import os
-from typing import List
 
-from telegram import Update
-from telegram.ext import CallbackContext
-
-import pandas as pd
-from selenium.common import InvalidSessionIdException, TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver import Chrome, ChromeOptions
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.remote.webelement import WebElement
-from selenium.webdriver.support.wait import WebDriverWait
 from selenium.common.exceptions import NoSuchElementException
 
 from config import DOWNLOAD_DIR, FILTER_TARIFF, OFD_RU_LOGIN_URL, OFD_RU_USERNAME, OFD_RU_PASSWORD, ONE_OFD_PASSWORD, \
     ONE_OFD_LOGIN_URL, ONE_OFD_USERNAME, ATOL_SIGMA_USERNAME, ATOL_SIGMA_PASSWORD, ATOL_SIGMA_LOGIN_URL
+from tools import log_print, log_webdriver_action
 from xlsx_utils import form_sigma_dataframe
+
+
 logger = logging.getLogger(__name__)
-
-def log_print(func):
-    @wraps(func)
-    def _wrapper(*args, **kwargs):
-        sig = inspect.signature(func)
-        bound = sig.bind(*args, **kwargs)
-        bound.apply_defaults()
-        all_args = {arg: value for arg, value in bound.arguments.items() if
-                    arg != 'self'}  # Создаём словарь аргументов, исключая 'self'
-        logger.info(f'CALL {func.__name__}{all_args}...')
-        start_time = time.time()
-
-        result = func(*args, **kwargs)
-
-        exec_time = time.time() - start_time
-        logger.info(f'RESULT {func.__name__}{all_args} ({exec_time:.3f} sec.):\n{result} ')
-        return result
-
-    return _wrapper
-
-
-def log_webdriver_action(func):
-    @wraps(func)
-    def _wrapper(*args, **kwargs):
-        # Предполагаем, что первый аргумент после self - это либо экземпляр WebDriver, либо WebElement
-        element_or_driver = args[1]
-        description = "WebDriver" if not isinstance(element_or_driver, WebElement) else "WebElement"
-        # Дополнительно логгируем тип элемента и его атрибуты, если это WebElement
-        if description != "WebElement":
-            logger.info(f"CALL {func.__name__} on {description}...")
-        else:
-            try:
-                text = element_or_driver.text
-                element_description = f"{element_or_driver.tag_name} element"
-                if text:
-                    element_description += f" with text:\n'{text}'"
-            except:
-                element_description = "unknown element"
-            logger.info(f"CALL {func.__name__} on {element_description}...")
-
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        exec_time = time.time() - start_time
-        logger.info(f"RESULT {func.__name__} is completed for {exec_time:.3f} sec.")
-        return result
-
-    return _wrapper
-
 
 class WebdriverProfile:
     def __init__(self):
@@ -277,101 +219,6 @@ class WebdriverProfile:
         df.to_excel(f'{DOWNLOAD_DIR}/sigma_data.xlsx', index=False, engine='openpyxl')
 
         return 'True'
-
-
-def direct_files_download(msg,  # объект telegram.Message (update.message или update.callback_query.message)
-                          selected_filter,
-                          start_date,
-                          end_date,
-                          urls: List[str]):
-    browser = WebdriverProfile()
-    logger.info("Chrome запущен.")
-    downloaded_files = []
-
-    if not urls:
-        logger.warning("Список URL пуст.")
-        return downloaded_files
-
-    for index, url in enumerate(urls, start=1):
-        counter = f'{index}/{len(urls)}'
-        before_download = set(os.listdir(DOWNLOAD_DIR))  # Сохраняем текущие файлы
-        logger.debug(f"{before_download = }")
-        logger.info(f"Переход к URL {index}/{len(urls)}: {url}")
-        try:
-            if 'pk.ofd.ru/api/' in url:
-                browser.ofd_ru_download(url)
-                msg.reply_text(f"{counter}. Данные от OFD.ru получены.")
-            elif 'org.1-ofd.ru/api/' in url:
-                browser.one_ofd_download(url)
-                msg.reply_text(f'{counter}. Данные от "Первый ОФД" получены.')
-            elif 'sigma' in url:
-                browser.atol_sigma_download(url, start_date, end_date, selected_filter)
-                msg.reply_text(f"{counter}. Данные по АТОЛ Sigma получены.")
-            elif 'kassatka' in url:
-                #browser.kassatka_download(url)
-                msg.reply_text(f"{counter}. Данные по Кассатке получены.")
-            else:
-                raise Exception('Unexceptional URL')
-        except InvalidSessionIdException:
-            logger.critical(f'{traceback.format_exc()}')
-            browser.close()
-            msg.reply_text(f"{counter}: внутренняя ошибка. Запустите программу выгрузки заново.")
-            sys.exit(1)
-        except Exception as e:
-            logger.warning(f'{e}: {traceback.format_exc()}')
-            if '--headless' not in browser.options.arguments:
-                time.sleep(36000)
-                return False
-            msg.reply_text(f"{counter}: не удалось выгрузить данные из {url}")
-            continue
-
-        # Ожидаем появления нового файла и проверки его статуса
-        try:
-            WebDriverWait(browser.driver, 30).until(
-                lambda driver: any(file.endswith('.xlsx') and file not in before_download for file in os.listdir(DOWNLOAD_DIR))
-            )
-        except TimeoutException:
-            logger.error(f"Загрузка из {url} не завершается.")
-            continue
-
-        # Проверка, что файл завершил загрузку и не является .crdownload
-        after_download = set(os.listdir(DOWNLOAD_DIR))
-        new_files = after_download - before_download  # Определяем новые файлы
-        logger.debug(f"Новые файлы: {new_files}")
-
-        counter = 1
-        for file_name in new_files:
-            if file_name.endswith('.xlsx'):
-                src_path = os.path.join(DOWNLOAD_DIR, file_name)
-
-                # Подождём, пока файл не станет доступен (не будет .crdownload)
-                while file_name.endswith('.crdownload') or not os.path.exists(src_path):
-                    logger.debug(f"Файл {file_name} ещё не готов, ожидаем...")
-                    time.sleep(1)
-                    file_name = os.listdir(DOWNLOAD_DIR)[-1]  # Обновляем имя файла, если оно изменилось
-                    src_path = os.path.join(DOWNLOAD_DIR, file_name)
-
-                # Переименовываем файл
-                new_file_name = f"{counter}.xlsx"
-                dest_path = os.path.join(DOWNLOAD_DIR, new_file_name)
-
-                while os.path.exists(dest_path):  # Если такой файл уже существует, пробуем другой номер
-                    counter += 1
-                    new_file_name = f"{counter}.xlsx"
-                    dest_path = os.path.join(DOWNLOAD_DIR, new_file_name)
-
-                os.rename(src_path, dest_path)
-                downloaded_files.append(dest_path)
-                logger.info(f"Файл переименован и скачан: {new_file_name}")
-                counter += 1
-
-        # Обновляем список файлов для следующей итерации
-        before_download = after_download
-
-    browser.close() # Ещё раз. Браузер необхоодимо закрывать после каждой сессии, иначе будет либо утечка памяти,
-    # либо  программа крашнется, попытавшись включить уже включчённую сессию.
-    # Контекстный менеджер не поддерживается вебдрайвером.
-    return downloaded_files
 
 
 if __name__ == '__main__':
