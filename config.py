@@ -1,7 +1,7 @@
 import os
 
 # Токен доступа к боту телеграм
-TOKEN = '7849560687:AAEl9BEAKenqidtyFd3gSUT1T24Rk3dkjEA'
+TOKEN = 'token'
 
 # Фильтры
 FILTER_FN = 'FILTER_FN'
@@ -18,15 +18,15 @@ DOWNLOAD_URLS = [
 # Параметры авторизации
 OFD_RU_LOGIN_URL = "https://pk.ofd.ru/login"
 OFD_RU_USERNAME = "api@le-ar.ru"
-OFD_RU_PASSWORD = "cX6u97CakGmYR5Wd3jt6"
+OFD_RU_PASSWORD = "password"
 
 ONE_OFD_LOGIN_URL = "https://org.1-ofd.ru/registration/login-mail"
 ONE_OFD_USERNAME = "dir@le-ar.ru"
-ONE_OFD_PASSWORD = "c3e6437d"
+ONE_OFD_PASSWORD = "password"
 
 ATOL_SIGMA_LOGIN_URL = 'https://manage.sigma.ru/login'
 ATOL_SIGMA_USERNAME = '79189707012'
-ATOL_SIGMA_PASSWORD = 'aFfg69834'
+ATOL_SIGMA_PASSWORD = 'password'
 
 # Путь для загрузки файлов
 DOWNLOAD_DIR = "/root/Downloads"
